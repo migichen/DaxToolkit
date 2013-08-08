@@ -382,12 +382,55 @@ private:
       : Functor(functor)
     {  }
 
+
     DAX_EXEC_EXPORT void operator()(dax::Id index) const {
       this->Functor(index);
     }
   private:
     FunctorType Functor;
   };
+
+#if 0
+   template<class FunctorType>
+  class ScheduleKernelRangeMax
+  {
+  public:
+    ::thrust::device_vector<dax::Id> zcurve_order;
+    DAX_CONT_EXPORT ScheduleKernelRangeMax(const FunctorType &functor,
+                                   dax::Id3 minMax)
+      : Functor(functor)
+    {  }
+
+    DAX_EXEC_EXPORT void operator()(dax::Id index) const {
+      this->Functor(index);
+    }
+  private:
+    FunctorType Functor;
+  };
+#endif
+   //<<<< new zcurve scheduler
+   template<class FunctorType>
+  class ScheduleKernelZCurve
+  {
+  public:
+    ::thrust::device_vector<dax::Id> zcurve_order;
+    DAX_CONT_EXPORT ScheduleKernelZCurve(const FunctorType &functor,
+                                   dax::Id3 minMax)
+      : Functor(functor)
+    {
+
+    	//zcurve_order = jimmies_function(minMax);
+
+    }
+
+    DAX_EXEC_EXPORT void operator()(dax::Id index) const {
+      //this->Functor(zcurver_order[index]);
+    	this->Functor(index);
+    }
+  private:
+    FunctorType Functor;
+  };
+   //>>>>
 
 public:
   template<class Functor>
@@ -424,8 +467,32 @@ public:
     //default behavior for the general algorithm is to defer to the default
     //schedule implementation. if you want to customize schedule for certain
     //grid types, you need to specialize this method
-    typedef DeviceAdapterAlgorithmThrust<DeviceAdapterTag> DAAT;
-    DAAT::Schedule(functor, rangeMax[0]*rangeMax[1]*rangeMax[2]);
+
+	  //<<<< modified codes
+    const dax::Id ERROR_ARRAY_SIZE = 1024;
+    ::thrust::device_vector<char> errorArray(ERROR_ARRAY_SIZE);
+    errorArray[0] = '\0';
+    dax::exec::internal::ErrorMessageBuffer errorMessage(
+          ::thrust::raw_pointer_cast(&(*errorArray.begin())),
+          errorArray.size());
+
+    functor.SetErrorMessageBuffer(errorMessage);
+
+    ScheduleKernelZCurve<FunctorType> kernel(functor, rangeMax);
+
+    const dax::Id numInstances = rangeMax[0] * rangeMax[1] * rangeMax[2];
+    ::thrust::for_each(::thrust::make_counting_iterator<dax::Id>(0),
+                       ::thrust::make_counting_iterator<dax::Id>(numInstances),
+                       kernel);
+    //>>>>
+
+    if (errorArray[0] != '\0')
+      {
+      char errorString[ERROR_ARRAY_SIZE];
+      ::thrust::copy(errorArray.begin(), errorArray.end(), errorString);
+
+      throw dax::cont::ErrorExecution(errorString);
+      }
   }
 
   template<typename T, class Container>
